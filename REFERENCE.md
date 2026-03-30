@@ -475,6 +475,152 @@ export function useCreatePost() {
 }
 ```
 
+## usePrevious Hook -- Track State Transitions
+
+```tsx
+import { useRef, useEffect } from "react"
+
+export function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T>()
+  useEffect(() => {
+    ref.current = value
+  })
+  return ref.current
+}
+```
+
+## Focus Management on Edit/View Toggle
+
+```tsx
+import { useState, useRef, useEffect } from "react"
+
+function TodoItem({ name, id, onDelete, onEdit }: Props) {
+  const [isEditing, setEditing] = useState(false)
+  const [newName, setNewName] = useState(name)
+  const editFieldRef = useRef<HTMLInputElement>(null)
+  const editButtonRef = useRef<HTMLButtonElement>(null)
+  const wasEditing = usePrevious(isEditing)
+
+  useEffect(() => {
+    if (!wasEditing && isEditing) {
+      editFieldRef.current?.focus()     // Entering edit mode -> focus input
+    } else if (wasEditing && !isEditing) {
+      editButtonRef.current?.focus()    // Leaving edit mode -> focus edit button
+    }
+  }, [wasEditing, isEditing])
+
+  if (isEditing) {
+    return (
+      <form onSubmit={(e) => { e.preventDefault(); onEdit(id, newName); setEditing(false) }}>
+        <input ref={editFieldRef} value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <button type="button" onClick={() => setEditing(false)}>Cancel</button>
+        <button type="submit">Save</button>
+      </form>
+    )
+  }
+
+  return (
+    <div>
+      <span>{name}</span>
+      <button ref={editButtonRef} onClick={() => setEditing(true)}>Edit</button>
+      <button onClick={() => onDelete(id)}>Delete</button>
+    </div>
+  )
+}
+```
+
+## Focus on Deletion -- Heading Focus Pattern
+
+```tsx
+function TaskList({ tasks, onDelete }: Props) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const prevCount = usePrevious(tasks.length)
+
+  useEffect(() => {
+    if (prevCount !== undefined && tasks.length < prevCount) {
+      headingRef.current?.focus()
+    }
+  }, [tasks.length, prevCount])
+
+  return (
+    <>
+      <h2 ref={headingRef} tabIndex={-1}>
+        {tasks.length} {tasks.length === 1 ? "task" : "tasks"} remaining
+      </h2>
+      <ul role="list" aria-labelledby="list-heading">
+        {tasks.map((task) => (
+          <TaskItem key={task.id} task={task} onDelete={onDelete} />
+        ))}
+      </ul>
+    </>
+  )
+}
+```
+
+## Thin Page Composing Components
+
+```tsx
+// CORRECT: Page is a thin composer
+import { AppLayout } from "@/components/layouts/AppLayout"
+import { OrderFilters } from "@/components/orders/OrderFilters"
+import { OrderTable } from "@/components/orders/OrderTable"
+import { Pagination } from "@/components/ui/Pagination"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { PageHeader } from "@/components/ui/PageHeader"
+
+interface Props {
+  orders: PaginatedResponse<Order>
+  filters: { status: string | null; search: string | null }
+}
+
+export default function OrdersIndex({ orders, filters }: Props) {
+  return (
+    <AppLayout>
+      <PageHeader title="Orders" />
+      <OrderFilters filters={filters} />
+      {orders.data.length > 0 ? (
+        <>
+          <OrderTable orders={orders.data} />
+          <Pagination meta={orders.meta} />
+        </>
+      ) : (
+        <EmptyState message="No orders found" />
+      )}
+    </AppLayout>
+  )
+}
+```
+
+## Filter Map Pattern -- Constants Outside Component
+
+```tsx
+const FILTER_MAP: Record<string, (task: Task) => boolean> = {
+  All: () => true,
+  Active: (task) => !task.completed,
+  Completed: (task) => task.completed,
+}
+const FILTER_NAMES = Object.keys(FILTER_MAP)
+
+function TaskFilters({ activeFilter, onFilterChange }: Props) {
+  return (
+    <div role="group" aria-label="Filter tasks">
+      {FILTER_NAMES.map((name) => (
+        <button
+          key={name}
+          type="button"
+          aria-pressed={name === activeFilter}
+          onClick={() => onFilterChange(name)}
+        >
+          <span className="visually-hidden">Show </span>
+          {name}
+          <span className="visually-hidden"> tasks</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+```
+
 ## Event Handler Composition
 
 ```tsx

@@ -52,10 +52,17 @@ Apply these standards to ALL React and Next.js work:
 ### Accessibility
 - All interactive components need keyboard handling and ARIA attributes.
 - `aria-labelledby`, `aria-describedby`, `aria-expanded`, `aria-haspopup` on dialogs/menus.
+- `aria-pressed` (string, not boolean) on toggle/filter buttons.
 - IDs generated via `useId()` for uniqueness.
 - Focus trapping in modals. Return focus to trigger on close.
+- Focus management on DOM swap: when edit/view modes toggle, use `useRef` + `useEffect` to move focus.
+- Focus on deletion: when an item is deleted, focus the list heading or container.
+- `tabIndex={-1}` on headings/containers that need programmatic focus (not keyboard focusable).
+- `visually-hidden` class for screen-reader-only text on icon buttons.
+- `role="list"` on styled `<ul>` elements (CSS can strip list semantics).
 - Dev-only warnings for missing required a11y elements (title, description).
 - `type="button"` on non-submit buttons to prevent form submission.
+- Use `usePrevious` hook to detect state transitions and avoid unwanted focus on initial render.
 
 ---
 
@@ -91,6 +98,7 @@ useDebounce(value, delay)        -- timer cleanup in useEffect
 useLocalStorage(key, initial)    -- useSyncExternalStore + StorageEvent
 useMediaQuery(query)             -- useSyncExternalStore + matchMedia
 useControllableState(prop, default, onChange) -- controlled/uncontrolled
+usePrevious(value)               -- track previous state for transition detection
 ```
 
 ---
@@ -186,37 +194,197 @@ useControllableState(prop, default, onChange) -- controlled/uncontrolled
 
 ---
 
-## 8. Project Structure
+## 8. Project Structure & Component Organization
 
-### Next.js App Router
+### Golden Rule: Break Everything Into Components
+
+Every piece of UI that can be named gets its own component file. No monolithic pages. No 300-line files with inline JSX. Break aggressively, group logically.
+
 ```
-app/
-  layout.tsx              # Root layout (Server Component)
-  page.tsx                # Home page
-  (auth)/
-    login/page.tsx        # Grouped routes
-    register/page.tsx
-  dashboard/
-    layout.tsx            # Nested layout
-    page.tsx
-    loading.tsx           # Suspense fallback
-    error.tsx             # Error boundary
-components/
-  ui/                     # Reusable primitives (button, dialog, input)
-  features/               # Feature-specific components
-hooks/                    # Custom hooks
-lib/                      # Utilities, API clients, config
-types/                    # Shared TypeScript types
-actions/                  # Server actions
+COMPONENT DECISION: Can I name this piece of UI?
+  YES -> It is its own component file
+  NO  -> It is too small (a single <span>) or too abstract
+
+COMPONENT SIZE: If a component file exceeds 100 lines, it
+probably contains multiple components that should be extracted.
 ```
 
-### Rules
-- Colocate files with their feature. Shared code in top-level directories.
-- `components/ui/` for design system primitives. `components/features/` for domain logic.
-- One hook per file in `hooks/`. Name matches the hook.
-- Barrel files (`index.ts`) only for `components/ui/`. Avoid elsewhere.
-- Server actions in `actions/` directory or colocated with their route.
-- Types colocated with components unless shared across features.
+### Directory Structure
+
+```
+src/ (or resources/js/ for Inertia)
+├── components/
+│   ├── ui/                          # Global design system primitives
+│   │   ├── Button.tsx
+│   │   ├── Dialog.tsx
+│   │   ├── Input.tsx
+│   │   ├── Badge.tsx
+│   │   ├── Card.tsx
+│   │   ├── DataTable.tsx
+│   │   ├── Pagination.tsx
+│   │   ├── EmptyState.tsx
+│   │   ├── LoadingSpinner.tsx
+│   │   └── index.ts                 # Barrel file (only here)
+│   │
+│   ├── layouts/                     # Shared layout components
+│   │   ├── AppLayout.tsx
+│   │   ├── AuthLayout.tsx
+│   │   ├── Sidebar.tsx
+│   │   ├── Navbar.tsx
+│   │   └── Footer.tsx
+│   │
+│   ├── orders/                      # Page-specific components
+│   │   ├── OrderCard.tsx
+│   │   ├── OrderStatusBadge.tsx
+│   │   ├── OrderFilters.tsx
+│   │   ├── OrderTable.tsx
+│   │   ├── OrderSummary.tsx
+│   │   ├── OrderTimeline.tsx
+│   │   └── CreateOrderForm.tsx
+│   │
+│   ├── dashboard/                   # Dashboard-specific components
+│   │   ├── StatsCard.tsx
+│   │   ├── RevenueChart.tsx
+│   │   ├── RecentOrders.tsx
+│   │   └── ActivityFeed.tsx
+│   │
+│   ├── users/                       # User-specific components
+│   │   ├── UserAvatar.tsx
+│   │   ├── UserCard.tsx
+│   │   ├── UserTable.tsx
+│   │   └── UserProfileForm.tsx
+│   │
+│   └── settings/                    # Settings-specific components
+│       ├── GeneralSettings.tsx
+│       ├── NotificationSettings.tsx
+│       └── BillingSettings.tsx
+│
+├── pages/ (or app/ for Next.js)     # Page-level entry points (thin)
+│   ├── Dashboard.tsx                # Composes dashboard/* components
+│   ├── Orders/
+│   │   ├── Index.tsx                # Composes orders/* components
+│   │   ├── Show.tsx
+│   │   └── Create.tsx
+│   ├── Users/
+│   │   ├── Index.tsx
+│   │   └── Show.tsx
+│   └── Settings/
+│       └── Index.tsx
+│
+├── hooks/                           # Custom hooks (one per file)
+│   ├── useDebounce.ts
+│   ├── useLocalStorage.ts
+│   ├── useMediaQuery.ts
+│   └── usePrevious.ts
+│
+├── lib/                             # Utilities, API clients, config
+│   ├── utils.ts                     # cn(), formatCurrency(), formatDate()
+│   ├── api.ts
+│   └── constants.ts
+│
+├── types/                           # Shared TypeScript types
+│   ├── order.ts
+│   ├── user.ts
+│   └── index.ts
+│
+└── actions/                         # Server actions (Next.js)
+    ├── orders.ts
+    └── users.ts
+```
+
+### Component Hierarchy Rules
+
+**Global components (`components/ui/`):**
+- Used across 3+ pages or sections
+- No business logic, pure presentation
+- Accept generic props (children, className, variant, size)
+- Examples: Button, Input, Dialog, Card, Badge, DataTable, Pagination
+
+**Layout components (`components/layouts/`):**
+- Page shells, navigation, sidebars, footers
+- Shared across all or most pages
+- Accept children for content injection
+
+**Page-specific components (`components/{feature}/`):**
+- Used by one section or feature
+- Contain business logic specific to that feature
+- Named with the feature prefix: `OrderCard`, `OrderTable`, `OrderFilters`
+- Grouped in a folder matching the feature name
+
+**Page files (`pages/` or `app/`):**
+- THIN. Pages are composers, not implementers.
+- A page file imports and arranges components. That's it.
+- No inline JSX beyond component composition.
+- No business logic in page files.
+
+```tsx
+// CORRECT: Page composes components
+export default function OrdersIndex({ orders, filters }: Props) {
+  return (
+    <AppLayout>
+      <PageHeader title="Orders" />
+      <OrderFilters filters={filters} />
+      <OrderTable orders={orders} />
+      <Pagination meta={orders.meta} />
+    </AppLayout>
+  )
+}
+
+// WRONG: Page contains all the UI inline
+export default function OrdersIndex({ orders }: Props) {
+  return (
+    <div className="...">
+      <h1>Orders</h1>
+      <div className="filters">
+        <select>...</select>          // Should be <OrderFilters />
+        <input placeholder="Search"/> // Should be in <OrderFilters />
+      </div>
+      <table>
+        <thead>...</thead>            // Should be <OrderTable />
+        <tbody>
+          {orders.map(order => (     // Should be inside <OrderTable />
+            <tr>...</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+```
+
+### When to Extract a Component
+
+```
+Extract into its own file when:
+1. It has a name (OrderCard, UserAvatar, StatsChart)
+2. It is used more than once
+3. It represents a logical chunk (filters, table, form, sidebar)
+4. The parent file is getting long (100+ lines)
+5. It has its own state or event handlers
+6. It could be tested independently
+
+Do NOT extract when:
+1. It is a single HTML element with no logic
+2. Extracting would create a file with less than 10 lines
+3. It is only a wrapper div with className
+```
+
+### Nesting Depth
+
+Subdirectories when a feature is complex: `components/orders/table/OrderTable.tsx`, `components/orders/form/CreateOrderForm.tsx`.
+
+### Constants Outside Components
+
+Static data outside the component function. Never recreate on every render. See REFERENCE.md for full example.
+
+### File Naming
+- Components: PascalCase matching the component name (`OrderCard.tsx`)
+- Hooks: camelCase matching the hook name (`useDebounce.ts`)
+- Utils/lib: camelCase (`utils.ts`, `formatCurrency.ts`)
+- Types: camelCase (`order.ts`, `user.ts`)
+- Pages: PascalCase (`Index.tsx`, `Show.tsx`, `Create.tsx`)
+- Barrel files: only in `components/ui/` (`index.ts`)
+- One component per file. Always.
 
 ---
 
@@ -271,7 +439,17 @@ function Wrapper() {
 
 ---
 
-## 10. Event Handling
+## 10. Form Gotchas
+
+- `defaultChecked="false"` sets a truthy STRING. Use `defaultChecked={false}` with braces.
+- `checked` without `onChange` creates a read-only checkbox. Use `defaultChecked` for uncontrolled.
+- `htmlFor` in JSX, not `for`. `className` in JSX, not `class`.
+- Always `event.preventDefault()` in form submit handlers.
+- Controlled inputs: `value={state}` + `onChange={handler}`. Both required together.
+
+---
+
+## 11. Event Handling
 
 - Compose event handlers, never silently override: `composeEventHandlers(props.onClick, internalHandler)`.
 - Consumer handler runs first, can `preventDefault()` to cancel internal handler.
